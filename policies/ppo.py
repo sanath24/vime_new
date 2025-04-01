@@ -85,14 +85,23 @@ class PPOPolicy(Policy):
         return advantages, returns
     
     def update(self, states, actions, rewards, next_states, log_probs, dones):        
-        # Convert to tensors
-        states = torch.FloatTensor(np.array(states))
-        actions = torch.LongTensor(np.array(actions))
-        rewards = torch.FloatTensor(np.array(rewards))
-        next_states = torch.FloatTensor(np.array(next_states))
-        old_log_probs = torch.stack(log_probs)
-        dones = torch.FloatTensor(np.array(dones))
+        # states is a list of tensors, convert to single tensor
         
+        states = torch.cat(states)
+        next_states = torch.cat(next_states)
+        rewards = torch.cat(rewards)
+        actions = torch.cat(actions)
+        log_probs = torch.cat(log_probs)
+        dones = torch.cat(dones)
+        
+        # convert to correct type
+        rewards = rewards.float()
+        dones = dones.float()
+        states = states.float()
+        next_states = next_states.float()
+        actions = actions.float()
+        log_probs = log_probs.float()
+                
         # Compute values
         values = torch.squeeze(self.value_net(states))
         next_values = torch.squeeze(self.value_net(next_states))
@@ -109,7 +118,7 @@ class PPOPolicy(Policy):
             new_log_probs, new_values, entropy = self.evaluate_actions(states, actions)
             
             # Compute ratio and clipped objective
-            ratio = torch.exp(new_log_probs - old_log_probs.detach())
+            ratio = torch.exp(new_log_probs - log_probs.detach())
             surrogate1 = ratio * advantages.detach()
             surrogate2 = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * advantages.detach()
             

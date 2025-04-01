@@ -24,9 +24,13 @@ class VIMETrainer():
             rewards = []
             next_states = []
             log_probs = []
+            dones = []
             
             for traj in trajectories:
                 traj_states, traj_actions, traj_next_states, traj_rewards, traj_log_probs = traj.get_inputs_and_targets()
+                traj_dones = torch.zeros(traj_states.shape[0])
+                # set the last element of traj_dones to 1
+                traj_dones[-1] = 1
                 info_gain = self.bnn.eval_info_gain(traj_states, traj_actions, traj_next_states)
                 new_rewards = traj_rewards + info_gain
                 rewards.append(new_rewards)
@@ -34,10 +38,10 @@ class VIMETrainer():
                 actions.append(traj_actions)
                 next_states.append(traj_next_states)
                 log_probs.append(traj_log_probs)
-                
+                dones.append(traj_dones)
             
             self.bnn.update(self.replay_pool)
-            self.policy.update(states, actions, rewards, next_states, log_probs)
+            self.policy.update(states, actions, rewards, next_states, log_probs, dones)
                 
     def sample_trajectories(self) -> list[Trajectory]:
         result = []

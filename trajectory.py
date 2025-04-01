@@ -23,6 +23,6 @@ class Trajectory:
         actions = torch.tensor(np.array(self.actions))
         next_states = torch.tensor(np.array(self.states[1:]))
         rewards = torch.tensor(np.array(self.rewards))
-        log_probs = torch.tensor(np.array(self.log_probs))
+        log_probs = torch.tensor(self.log_probs)
         
         return states, actions, next_states, rewards, log_probs
