@@ -5,6 +5,7 @@ from environment import Environment
 from bnn import BNN
 from policy import Policy
 from tqdm import tqdm
+import numpy as np
 
 class VIMETrainer():
     def __init__(self, env: Environment, policy: Policy, bnn: BNN, n_epochs, n_traj):
@@ -17,22 +18,26 @@ class VIMETrainer():
     
     # TODO: Log results
     def train(self):
-        for _ in tqdm(range(self.n_epochs)):
+        for _ in range(self.n_epochs):
             trajectories = self.sample_trajectories()
             states = []
             actions = []
+            old_rewards = []
+            info_gains = []
             rewards = []
             next_states = []
             log_probs = []
             dones = []
             
-            for traj in trajectories:
+            for traj in tqdm(trajectories):
                 traj_states, traj_actions, traj_next_states, traj_rewards, traj_log_probs = traj.get_inputs_and_targets()
                 traj_dones = torch.zeros(traj_states.shape[0])
                 # set the last element of traj_dones to 1
                 traj_dones[-1] = 1
                 info_gain = self.bnn.eval_info_gain(traj_states, traj_actions, traj_next_states)
                 new_rewards = traj_rewards + info_gain
+                old_rewards.append(traj_rewards)
+                info_gains.append(info_gain)
                 rewards.append(new_rewards)
                 states.append(traj_states)
                 actions.append(traj_actions)
@@ -42,6 +47,8 @@ class VIMETrainer():
             
             self.bnn.update(self.replay_pool)
             self.policy.update(states, actions, rewards, next_states, log_probs, dones)
+            self.replay_pool.clear()
+            self.log_results(rewards, old_rewards, info_gains)
                 
     def sample_trajectories(self) -> list[Trajectory]:
         result = []
@@ -64,3 +71,11 @@ class VIMETrainer():
                 self.replay_pool.add(current_state, next_action, next_state)
         
         return trajectory
+
+    def log_results(self, rewards, old_rewards, info_gains):
+        rewards = np.mean([torch.sum(r) for r in rewards])
+        old_rewards = np.mean([torch.sum(r) for r in old_rewards])
+        info_gains = np.mean([torch.sum(r) for r in info_gains])
+    
+        
+        print(f"Rewards: {rewards}, Old Rewards: {old_rewards}, Info Gains: {info_gains}")

@@ -8,3 +8,6 @@ class ReplayBuffer:
     
     def sample(self, n):
         return self.buffer[:n]
+    
+    def clear(self):
+        self.buffer = []
