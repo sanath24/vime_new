@@ -20,11 +20,11 @@ class BNNLayer(nn.Module):
         self.b_mu = nn.Parameter(torch.randn(n_outputs, device=device))
         self.b_rho = nn.Parameter(torch.full((n_outputs,), self.rho_prior, device=device))
 
-        # Keep track of initial parameters (directly on device)
-        self.W_mu_init = self.W_mu.clone().detach()
-        self.W_rho_init = self.W_rho.clone().detach()
-        self.b_mu_init = self.b_mu.clone().detach()
-        self.b_rho_init = self.b_rho.clone().detach()
+        # Keep track of prior parameters (directly on device)
+        self.W_mu_prior = self.W_mu.clone().detach()
+        self.W_rho_prior = self.W_rho.clone().detach()
+        self.b_mu_prior = self.b_mu.clone().detach()
+        self.b_rho_prior = self.b_rho.clone().detach()
 
         # Old parameters for KL divergence (directly on device)
         self.W_mu_old = torch.zeros_like(self.W_mu, device=device)
@@ -90,6 +90,13 @@ class BNNLayer(nn.Module):
         self.W_rho_old.copy_(self.W_rho.data)
         self.b_mu_old.copy_(self.b_mu.data)
         self.b_rho_old.copy_(self.b_rho.data)
+        
+    def save_prior_params(self):
+        # Save prior parameters for KL divergence calculation
+        self.W_mu_init = self.W_mu.clone().detach()
+        self.W_rho_init = self.W_rho.clone().detach()
+        self.b_mu_init = self.b_mu.clone().detach()
+        self.b_rho_init = self.b_rho.clone().detach()
 
     def reset_to_old_params(self):
         # Use in-place copy for efficiency
@@ -101,7 +108,7 @@ class BNNLayer(nn.Module):
 
 class BNN(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_dim, device, 
-                 n_pred=5, num_replay_samples=100, epochs=10, 
+                 n_pred=5, batch_size=100, epochs=10, 
                  kl_weight=0.01, lr=0.001):
         super(BNN, self).__init__()
         self.device = device
@@ -110,7 +117,7 @@ class BNN(nn.Module):
         self.output_dim = output_dim
         self.hidden_dim = hidden_dim
         self.n_pred = n_pred
-        self.num_replay_samples = num_replay_samples
+        self.batch_size = batch_size
         self.epochs = epochs
         self.kl_weight = kl_weight
         self.lr = lr
@@ -161,7 +168,7 @@ class BNN(nn.Module):
                 kl_div += layer.kl_div_new_prior()
         return kl_div
     
-    def loss(self, inputs, targets):
+    def loss(self, inputs, targets, kl_div_prior=False):
         # Move data to device if necessary
         inputs = inputs.to(self.device)
         targets = targets.to(self.device)
@@ -176,7 +183,10 @@ class BNN(nn.Module):
         avg_pred_loss = total_loss / self.n_pred
         
         # Calculate KL divergence
-        kl_div = self.kl_div_new_old()
+        if kl_div_prior:
+            kl_div = self.kl_div_new_prior()
+        else:
+            kl_div = self.kl_div_new_old()
         
         # Total loss with KL regularization
         total_loss = avg_pred_loss + self.kl_weight * kl_div
@@ -228,6 +238,33 @@ class BNN(nn.Module):
         
         return info_gain
     
+    def save_prior_params(self):
+        for layer in self.layers:
+            if isinstance(layer, BNNLayer):
+                layer.save_prior_params()
+        
+    def eval_info_gain_and_update(self, inputs, targets):
+        # divide inputs and targets into batches
+        num_batches = len(inputs) // self.batch_size + (1 if len(inputs) % self.batch_size > 0 else 0)
+        info_gain = torch.zeros(len(inputs), device=self.device)
+        total_loss = 0
+        total_sample_loss = 0
+        total_divergence_loss = 0
+        self.save_prior_params()
+        for i in range(num_batches):
+            self.save_old_params()
+            loss, sample_loss, divergence_loss = self.loss(inputs[i * self.batch_size: min((i + 1) * self.batch_size, len(inputs))], targets[i * self.batch_size: min((i + 1) * self.batch_size, len(inputs))], True)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            total_loss += loss.item()
+            total_sample_loss += sample_loss.item()
+            total_divergence_loss += divergence_loss.item()
+            info_gain[min((i + 1) * self.batch_size - 1, len(inputs) - 1)] = self.kl_div_new_old().detach()
+        
+        return info_gain, (total_loss / num_batches), (total_sample_loss / num_batches), (total_divergence_loss / num_batches)
+            
+    
     def reset_to_old_params(self):
         for layer in self.layers:
             if isinstance(layer, BNNLayer):
@@ -249,7 +286,7 @@ class BNN(nn.Module):
         
         for _ in range(self.epochs):
             # Get batch from replay buffer
-            states, actions, next_states = replay_pool.sample(self.num_replay_samples)
+            states, actions, next_states = replay_pool.sample(self.batch_size)
             
             # Move data to device
             states = states.to(self.device)

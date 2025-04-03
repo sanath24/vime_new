@@ -34,13 +34,22 @@ class VIMETrainer():
             next_states = []
             log_probs = []
             dones = []
+            total_bnn_loss = 0
+            total_sample_loss = 0
+            total_divergence_loss = 0
             
             for traj in tqdm(trajectories):
                 traj_states, traj_actions, traj_next_states, traj_rewards, traj_log_probs = traj.get_inputs_and_targets()
                 traj_dones = torch.zeros(traj_states.shape[0])
                 # set the last element of traj_dones to 1
                 traj_dones[-1] = 1
-                info_gain = self.bnn.eval_info_gain(torch.cat((traj_states, traj_actions.unsqueeze(1)), dim=1), traj_next_states)
+                # info_gain = self.bnn.eval_info_gain(torch.cat((traj_states, traj_actions.unsqueeze(1)), dim=1), traj_next_states)
+                info_gain, bnn_loss, sample_loss, divergence_loss = self.bnn.eval_info_gain_and_update(torch.cat((traj_states, traj_actions.unsqueeze(1)), dim=1), traj_next_states)
+                
+                total_bnn_loss += bnn_loss
+                total_sample_loss += sample_loss
+                total_divergence_loss += divergence_loss
+                
                 traj_rewards = traj_rewards.to(self.bnn.device)
                 new_rewards = traj_rewards + self.eta * info_gain
                 old_rewards.append(traj_rewards)
@@ -52,10 +61,10 @@ class VIMETrainer():
                 log_probs.append(traj_log_probs)
                 dones.append(traj_dones)
             
-            bnn_loss, sample_loss, divergence_loss = self.bnn.update(self.replay_pool)
+            # bnn_loss, sample_loss, divergence_loss = self.bnn.update(self.replay_pool)
             self.policy.update(states, actions, rewards, next_states, log_probs, dones)
             self.replay_pool.clear()
-            self.log_results(i, rewards, old_rewards, info_gains, bnn_loss, sample_loss, divergence_loss)
+            self.log_results(i, rewards, old_rewards, info_gains, total_bnn_loss / len(trajectories), total_sample_loss / len(trajectories), total_divergence_loss / len(trajectories))
             
         self.policy.save_model(self.output_dir)
         self.bnn.save_model(self.output_dir)
