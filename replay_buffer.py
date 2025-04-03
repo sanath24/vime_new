@@ -14,9 +14,9 @@ class ReplayBuffer:
         indices = np.random.choice(len(self.buffer), n, replace=True)
         
         states, actions, next_states = zip(*[self.buffer[i] for i in indices])
-        states = torch.tensor(states)
-        actions = torch.tensor(actions)
-        next_states = torch.tensor(next_states)
+        states = torch.tensor(np.array(states))
+        actions = torch.tensor(np.array(actions))
+        next_states = torch.tensor(np.array(next_states))
         return states, actions, next_states
     
     def clear(self):

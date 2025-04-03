@@ -41,6 +41,7 @@ class VIMETrainer():
                 # set the last element of traj_dones to 1
                 traj_dones[-1] = 1
                 info_gain = self.bnn.eval_info_gain(torch.cat((traj_states, traj_actions.unsqueeze(1)), dim=1), traj_next_states)
+                traj_rewards = traj_rewards.to(self.bnn.device)
                 new_rewards = traj_rewards + self.eta * info_gain
                 old_rewards.append(traj_rewards)
                 info_gains.append(info_gain)
@@ -83,8 +84,8 @@ class VIMETrainer():
         return trajectory
 
     def log_results(self, epoch, rewards, old_rewards, info_gains, bnn_loss, sample_loss, divergence_loss):
-        rewards = np.mean([torch.sum(r) for r in rewards])
-        old_rewards = np.mean([torch.sum(r) for r in old_rewards])
+        rewards = np.mean([torch.sum(r).cpu() for r in rewards])
+        old_rewards = np.mean([torch.sum(r).cpu() for r in old_rewards])
         # concatenate info gains
         info_gains = torch.cat(info_gains)
         info_gains = torch.mean(info_gains)

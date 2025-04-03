@@ -8,10 +8,11 @@ import os
 
 # TODO: Adapt PPO to work with continous action spaces
 class PPOPolicy(Policy):
-    def __init__(self, state_dim, action_dim, hidden_dim=64, lr=3e-4, gamma=0.99, 
+    def __init__(self, state_dim, action_dim, device, hidden_dim=64, lr=3e-4, gamma=0.99, 
                  clip_epsilon=0.2, value_factor=0.5, entropy_coef=0.01, max_grad_norm=0.5,
                  gae_lambda=0.95, epochs=4):
         super().__init__()
+        self.device = device
         
         self.gamma = gamma
         self.clip_epsilon = clip_epsilon
@@ -29,7 +30,7 @@ class PPOPolicy(Policy):
             nn.ReLU(),
             nn.Linear(hidden_dim, action_dim),
             nn.Softmax(dim=-1)
-        )
+        ).to(device)
         
         # Value network
         self.value_net = nn.Sequential(
@@ -38,7 +39,7 @@ class PPOPolicy(Policy):
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 1)
-        )
+        ).to(device)
         
         self.optimizer = optim.Adam(
             list(self.policy_net.parameters()) + list(self.value_net.parameters()), lr=lr
@@ -50,7 +51,7 @@ class PPOPolicy(Policy):
         if is_single_state:
             state = state.reshape(1, -1)
             
-        state_tensor = torch.tensor(state, dtype=torch.float32)
+        state_tensor = torch.tensor(state, dtype=torch.float32).to(self.device)
         probs = self.policy_net(state_tensor)
         dist = distributions.Categorical(probs)
         action = dist.sample()
@@ -89,12 +90,12 @@ class PPOPolicy(Policy):
     def update(self, states, actions, rewards, next_states, log_probs, dones):        
         # states is a list of tensors, convert to single tensor
         
-        states = torch.cat(states)
-        next_states = torch.cat(next_states)
-        rewards = torch.cat(rewards)
-        actions = torch.cat(actions)
-        log_probs = torch.cat(log_probs)
-        dones = torch.cat(dones)
+        states = torch.cat(states).to(self.device)
+        next_states = torch.cat(next_states).to(self.device)
+        rewards = torch.cat(rewards).to(self.device)
+        actions = torch.cat(actions).to(self.device)
+        log_probs = torch.cat(log_probs).to(self.device)
+        dones = torch.cat(dones).to(self.device)
         
         # convert to correct type
         rewards = rewards.float()
