@@ -28,11 +28,12 @@ class PPOPolicy(Policy):
         # Common feature extractor
         self.feature_extractor = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
             nn.ReLU()
         ).to(device)
-        
         # Policy network head depends on action space type
         if self.action_space_type == "discrete":
             self.policy_head = nn.Sequential(
@@ -49,8 +50,10 @@ class PPOPolicy(Policy):
         # Value network
         self.value_net = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 1)
         ).to(device)
@@ -60,13 +63,21 @@ class PPOPolicy(Policy):
             policy_params = list(self.feature_extractor.parameters()) + list(self.policy_head.parameters())
         else:  # continuous
             policy_params = list(self.feature_extractor.parameters()) + list(self.mean_head.parameters()) + [self.log_std_head]
-            
+        
+        # print total number of parameters
+        total_params = sum(p.numel() for p in policy_params + list(self.value_net.parameters()))
+        print(f"Total parameters in PPO policy: {total_params}")
+        
         self.optimizer = optim.Adam(
             policy_params + list(self.value_net.parameters()), lr=lr
         )
         
     def get_action(self, state):
         # Handle both single state and batched states
+        # set feature extractor to eval mode
+        self.feature_extractor.eval()
+        self.policy_head.eval()
+        self.value_net.eval()
         is_single_state = len(state.shape) == 1
         if is_single_state:
             state = state.reshape(1, -1)
@@ -86,6 +97,7 @@ class PPOPolicy(Policy):
             return action.cpu().numpy(), log_prob
         else:
             # Continuous action space
+            self.mean_head.eval()
             features = self.feature_extractor(state_tensor)
             mean = self.mean_head(features)
             std = torch.exp(self.log_std_head.clamp(min=np.log(self.min_std)))
