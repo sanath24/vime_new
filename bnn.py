@@ -40,6 +40,9 @@ class BNNLayer(nn.Module):
         # Sample weights and biases during training
         W = self.get_W()
         b = self.get_b()
+        # convert X to float tensor if it's not already
+        if not isinstance(X, torch.FloatTensor):
+            X = X.float()
         
         return torch.matmul(X, W) + b
 
@@ -130,9 +133,11 @@ class BNN(nn.Module):
         # Build network directly on device
         # Feature extractor shared by mean and std networks
         self.feature_extractor = nn.Sequential(
-            BNNLayer(input_dim, hidden_dim, 0.1, device),
+            BNNLayer(input_dim, hidden_dim, 1, device),
+            nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
-            BNNLayer(hidden_dim, hidden_dim, 0.1, device),
+            BNNLayer(hidden_dim, hidden_dim, 1, device),
+            nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
         ).to(device)
         
@@ -140,15 +145,18 @@ class BNN(nn.Module):
         self.mean_head = BNNLayer(hidden_dim, output_dim, 0.1, device).to(device)
         
         # Log standard deviation prediction head
-        self.log_std_head = BNNLayer(hidden_dim, output_dim, 0.1, device).to(device)
+        self.log_std_head = BNNLayer(hidden_dim, output_dim, 1, device).to(device)
         
         # Add all modules to a list for convenience
         self.all_layers = [
             self.feature_extractor[0],
-            self.feature_extractor[2],
+            self.feature_extractor[3],
             self.mean_head,
             self.log_std_head
         ]
+        # Print total number of parameters
+        total_params = sum(p.numel() for p in self.parameters())
+        print(f"Total parameters: {total_params}")
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
 
     def forward(self, x, infer=False):
@@ -181,12 +189,21 @@ class BNN(nn.Module):
     
     def gaussian_nll_loss(self, mean, std, target):
         """
-        Gaussian Negative Log-Likelihood loss
+        Gaussian Negative Log-Likelihood loss with clamping on variance
         """
+        # Set a minimum value for standard deviation to prevent numerical instability
+        min_std = 1e-6  # You can adjust this value based on your needs
+        
+        # Clamp the standard deviation to be at least `min_std`
+        std = torch.clamp(std, min=min_std)
+
         # Calculate negative log likelihood
         # NLL = 0.5 * log(2π) + log(σ) + 0.5 * ((y - μ) / σ)²
-        return (torch.log(std) + 0.5 * torch.log(2 * torch.tensor(np.pi, device=self.device)) + 
-                0.5 * ((target - mean) / std).pow(2)).mean()
+        nll = (torch.log(std) + 0.5 * torch.log(2 * torch.tensor(np.pi, device=self.device)) + 
+            0.5 * ((target - mean) / std).pow(2)).mean()
+
+        return nll
+
     
     def kl_div_new_old(self):
         kl_div = 0
@@ -274,11 +291,12 @@ class BNN(nn.Module):
     
     def save_prior_params(self):
         for layer in self.all_layers:
-            layer.save_prior_params()
+            if isinstance(layer, BNNLayer):
+                layer.save_prior_params()
         
     def eval_info_gain_and_update(self, inputs, targets):
         # divide inputs and targets into batches
-        num_batches = len(inputs) // self.batch_size + (1 if len(inputs) % self.batch_size > 0 else 0)
+        num_batches = len(inputs) // self.batch_size
         info_gain = torch.zeros(len(inputs), device=self.device)
         total_loss = 0
         total_sample_loss = 0
@@ -302,11 +320,13 @@ class BNN(nn.Module):
     
     def reset_to_old_params(self):
         for layer in self.all_layers:
-            layer.reset_to_old_params()
+            if isinstance(layer, BNNLayer):
+                layer.reset_to_old_params()
     
     def save_old_params(self):
         for layer in self.all_layers:
-            layer.save_old_params()
+            if isinstance(layer, BNNLayer):
+                layer.save_old_params()
     
     def update(self, replay_pool):
         # Save current parameters

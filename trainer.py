@@ -72,7 +72,7 @@ class VIMETrainer():
                 
     def sample_trajectories(self) -> list[Trajectory]:
         result = []
-        for n in range(self.n_traj):
+        for n in tqdm(range(self.n_traj)):
             trajectory = self.rollout()
             result.append(trajectory)
         
@@ -82,8 +82,11 @@ class VIMETrainer():
         self.env.reset()
         trajectory = Trajectory(self.env.get_start_state())
         terminal = False
-        while not terminal:
+        i = 0
+        while not terminal and i < 2000:
             current_state = trajectory.get_current_state()
+            i += 1
+            
             next_action, log_prob = self.policy.get_action(current_state)
             next_state, reward, terminal = self.env.step(next_action)
             trajectory.add_step(next_action, next_state, reward, log_prob)
