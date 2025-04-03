@@ -7,3 +7,6 @@ class Policy():
     
     def update(self, states, actions, rewards, next_states, log_probs):
         pass
+    
+    def save_model(self, path):
+        pass

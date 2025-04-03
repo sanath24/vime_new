@@ -4,7 +4,9 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.distributions as distributions
 import numpy as np
+import os
 
+# TODO: Adapt PPO to work with continous action spaces
 class PPOPolicy(Policy):
     def __init__(self, state_dim, action_dim, hidden_dim=64, lr=3e-4, gamma=0.99, 
                  clip_epsilon=0.2, value_factor=0.5, entropy_coef=0.01, max_grad_norm=0.5,
@@ -141,3 +143,10 @@ class PPOPolicy(Policy):
             )
             
             self.optimizer.step()
+            
+    def save_model(self, path):
+        if not os.path.exists(path):
+            os.makedirs(path)
+        torch.save(self.policy_net.state_dict(), path + "/policy.pth")
+        torch.save(self.value_net.state_dict(), path + "/value.pth")
+        
