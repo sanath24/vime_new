@@ -22,7 +22,7 @@ trainer = VIMETrainer(
     bnn=bnn,
     n_epochs=50,
     n_traj=100,
-    output_dir="out_0",
+    output_dir="out_1",
     eta=(1 / bnn.lr ** 2) * 0.0001
 )
 

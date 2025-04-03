@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 from torch.autograd import Variable
 import os
+import torch.nn.functional as F
 
 class BNNLayer(nn.Module):
     def __init__(self, n_inputs, n_outputs, std_prior, device):
@@ -62,10 +63,10 @@ class BNNLayer(nn.Module):
         # Calculate KL divergence with respect to initial parameters
         kl_div = self.kl_div(
             self.W_mu, self.log_to_std(self.W_rho), 
-            self.W_mu_init, self.log_to_std(self.W_rho_init))
+            self.W_mu_prior, self.log_to_std(self.W_rho_prior))
         kl_div += self.kl_div(
             self.b_mu, self.log_to_std(self.b_rho), 
-            self.b_mu_init, self.log_to_std(self.b_rho_init))
+            self.b_mu_prior, self.log_to_std(self.b_rho_prior))
         return kl_div
 
     def kl_div_new_old(self):
@@ -93,10 +94,10 @@ class BNNLayer(nn.Module):
         
     def save_prior_params(self):
         # Save prior parameters for KL divergence calculation
-        self.W_mu_init = self.W_mu.clone().detach()
-        self.W_rho_init = self.W_rho.clone().detach()
-        self.b_mu_init = self.b_mu.clone().detach()
-        self.b_rho_init = self.b_rho.clone().detach()
+        self.W_mu_prior = self.W_mu.clone().detach()
+        self.W_rho_prior = self.W_rho.clone().detach()
+        self.b_mu_prior = self.b_mu.clone().detach()
+        self.b_rho_prior = self.b_rho.clone().detach()
 
     def reset_to_old_params(self):
         # Use in-place copy for efficiency
@@ -109,7 +110,7 @@ class BNNLayer(nn.Module):
 class BNN(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_dim, device, 
                  n_pred=5, batch_size=100, epochs=10, 
-                 kl_weight=0.01, lr=0.001):
+                 kl_weight=0.01, lr=0.001, min_std=0.01):
         super(BNN, self).__init__()
         self.device = device
         
@@ -121,51 +122,82 @@ class BNN(nn.Module):
         self.epochs = epochs
         self.kl_weight = kl_weight
         self.lr = lr
+        self.min_std = min_std  # Minimum standard deviation for numerical stability
         
         print(f"KL weight: {self.kl_weight}")
         print(f"Learning rate: {self.lr}")
         
         # Build network directly on device
-        self.layers = nn.ModuleList([
+        # Feature extractor shared by mean and std networks
+        self.feature_extractor = nn.Sequential(
             BNNLayer(input_dim, hidden_dim, 0.1, device),
             nn.ReLU(),
             BNNLayer(hidden_dim, hidden_dim, 0.1, device),
             nn.ReLU(),
-            BNNLayer(hidden_dim, output_dim, 0.1, device)
-        ]).to(device)
+        ).to(device)
         
+        # Mean prediction head
+        self.mean_head = BNNLayer(hidden_dim, output_dim, 0.1, device).to(device)
+        
+        # Log standard deviation prediction head
+        self.log_std_head = BNNLayer(hidden_dim, output_dim, 0.1, device).to(device)
+        
+        # Add all modules to a list for convenience
+        self.all_layers = [
+            self.feature_extractor[0],
+            self.feature_extractor[2],
+            self.mean_head,
+            self.log_std_head
+        ]
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
-        
-        # Loss function (pre-instantiate for efficiency)
-        self.mse_loss = nn.MSELoss()
 
     def forward(self, x, infer=False):
         # Ensure input is on the correct device
         x = x.to(self.device)
         
-        for layer in self.layers:
+        # Extract features
+        features = x
+        for layer in self.feature_extractor:
             if isinstance(layer, BNNLayer):
-                x = layer(x, infer)
+                features = layer(features, infer)
             else:
-                x = layer(x)
-        return x
+                features = layer(features)
+        
+        # Predict mean
+        mean = self.mean_head(features, infer)
+        
+        # Predict log standard deviation
+        log_std = self.log_std_head(features, infer)
+        
+        # Apply soft plus and add minimum std for numerical stability
+        std = F.softplus(log_std) + self.min_std
+        
+        return mean, std
     
     def infer(self, x):
         with torch.no_grad():  # No gradient tracking needed for inference
-            return self.forward(x, infer=True)
+            mean, std = self.forward(x, infer=True)
+            return mean, std
+    
+    def gaussian_nll_loss(self, mean, std, target):
+        """
+        Gaussian Negative Log-Likelihood loss
+        """
+        # Calculate negative log likelihood
+        # NLL = 0.5 * log(2π) + log(σ) + 0.5 * ((y - μ) / σ)²
+        return (torch.log(std) + 0.5 * torch.log(2 * torch.tensor(np.pi, device=self.device)) + 
+                0.5 * ((target - mean) / std).pow(2)).mean()
     
     def kl_div_new_old(self):
         kl_div = 0
-        for layer in self.layers:
-            if isinstance(layer, BNNLayer):
-                kl_div += layer.kl_div_new_old()
+        for layer in self.all_layers:
+            kl_div += layer.kl_div_new_old()
         return kl_div
     
     def kl_div_new_prior(self):
         kl_div = 0
-        for layer in self.layers:
-            if isinstance(layer, BNNLayer):
-                kl_div += layer.kl_div_new_prior()
+        for layer in self.all_layers:
+            kl_div += layer.kl_div_new_prior()
         return kl_div
     
     def loss(self, inputs, targets, kl_div_prior=False):
@@ -176,8 +208,8 @@ class BNN(nn.Module):
         # Compute multiple forward passes for uncertainty estimation
         total_loss = 0
         for _ in range(self.n_pred):
-            output = self.forward(inputs)
-            total_loss += self.mse_loss(output, targets)
+            mean, std = self.forward(inputs)
+            total_loss += self.gaussian_nll_loss(mean, std, targets)
         
         # Average the prediction loss
         avg_pred_loss = total_loss / self.n_pred
@@ -187,6 +219,7 @@ class BNN(nn.Module):
             kl_div = self.kl_div_new_prior()
         else:
             kl_div = self.kl_div_new_old()
+            
         
         # Total loss with KL regularization
         total_loss = avg_pred_loss + self.kl_weight * kl_div
@@ -205,10 +238,11 @@ class BNN(nn.Module):
         # Compute multiple forward passes
         total_loss = 0
         for _ in range(self.n_pred):
-            output = self.forward(input)
-            if len(output.shape) > 1 and output.shape[0] == 1 and len(target.shape) == 1:
-                output = output.squeeze(0)
-            total_loss += self.mse_loss(output, target)
+            mean, std = self.forward(input)
+            if len(mean.shape) > 1 and mean.shape[0] == 1 and len(target.shape) == 1:
+                mean = mean.squeeze(0)
+                std = std.squeeze(0)
+            total_loss += self.gaussian_nll_loss(mean, std, target)
         
         return total_loss / self.n_pred
     
@@ -239,9 +273,8 @@ class BNN(nn.Module):
         return info_gain
     
     def save_prior_params(self):
-        for layer in self.layers:
-            if isinstance(layer, BNNLayer):
-                layer.save_prior_params()
+        for layer in self.all_layers:
+            layer.save_prior_params()
         
     def eval_info_gain_and_update(self, inputs, targets):
         # divide inputs and targets into batches
@@ -253,7 +286,9 @@ class BNN(nn.Module):
         self.save_prior_params()
         for i in range(num_batches):
             self.save_old_params()
-            loss, sample_loss, divergence_loss = self.loss(inputs[i * self.batch_size: min((i + 1) * self.batch_size, len(inputs))], targets[i * self.batch_size: min((i + 1) * self.batch_size, len(inputs))], True)
+            batch_inputs = inputs[i * self.batch_size: min((i + 1) * self.batch_size, len(inputs))]
+            batch_targets = targets[i * self.batch_size: min((i + 1) * self.batch_size, len(inputs))]
+            loss, sample_loss, divergence_loss = self.loss(batch_inputs, batch_targets, True)
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
@@ -266,14 +301,12 @@ class BNN(nn.Module):
             
     
     def reset_to_old_params(self):
-        for layer in self.layers:
-            if isinstance(layer, BNNLayer):
-                layer.reset_to_old_params()
+        for layer in self.all_layers:
+            layer.reset_to_old_params()
     
     def save_old_params(self):
-        for layer in self.layers:
-            if isinstance(layer, BNNLayer):
-                layer.save_old_params()
+        for layer in self.all_layers:
+            layer.save_old_params()
     
     def update(self, replay_pool):
         # Save current parameters
@@ -324,3 +357,38 @@ class BNN(nn.Module):
         self.load_state_dict(torch.load(os.path.join(path, "bnn_model.pth"), 
                                         map_location=self.device))
         self.eval()
+        
+    def get_prediction_with_uncertainty(self, x, n_samples=30):
+        """
+        Get mean prediction with uncertainty estimates
+        Returns: mean prediction, aleatoric uncertainty, epistemic uncertainty, total uncertainty
+        """
+        x = x.to(self.device)
+        
+        # Collect prediction samples
+        means = []
+        stds = []
+        
+        with torch.no_grad():
+            for _ in range(n_samples):
+                mean, std = self.forward(x)
+                means.append(mean)
+                stds.append(std)
+                
+        # Stack results
+        means = torch.stack(means)  # shape: [n_samples, batch_size, output_dim]
+        stds = torch.stack(stds)    # shape: [n_samples, batch_size, output_dim]
+        
+        # Calculate prediction mean and variance
+        pred_mean = means.mean(dim=0)  # Average prediction across samples
+        
+        # Aleatoric uncertainty - average predicted variance
+        aleatoric_uncertainty = stds.pow(2).mean(dim=0)
+        
+        # Epistemic uncertainty - variance of means across samples
+        epistemic_uncertainty = means.var(dim=0)
+        
+        # Total uncertainty
+        total_uncertainty = aleatoric_uncertainty + epistemic_uncertainty
+        
+        return pred_mean, aleatoric_uncertainty, epistemic_uncertainty, total_uncertainty
