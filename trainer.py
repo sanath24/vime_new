@@ -8,6 +8,8 @@ from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import datetime
+
 
 class VIMETrainer():
     def __init__(self, env: Environment, policy: Policy, bnn: BNN, n_epochs, n_traj, eta=0, output_dir=None):
@@ -20,6 +22,12 @@ class VIMETrainer():
         self.eta = eta
         self.results = []
         self.output_dir = output_dir
+        os.makedirs("logs",exist_ok=True)
+        # timestamp and save every training run
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = os.path.join("logs", f"{timestamp}_logs")
+        os.makedirs(output_dir, exist_ok=True)
+        self.save_dir = output_dir
         print("ETA: ", eta)
     
     # TODO: Log results
@@ -88,6 +96,19 @@ class VIMETrainer():
             i += 1
             
             next_action, log_prob = self.policy.get_action(current_state)
+            # print(f"Raw action type: {type(next_action)}, shape: {next_action.shape if hasattr(next_action, 'shape') else 'no shape'}")
+            
+            # # Handle both discrete and continuous actions
+            # if isinstance(next_action, torch.Tensor):
+            #     next_action = next_action.detach().cpu().numpy()
+            #     # print(f"After tensor conversion: {next_action.shape}")
+            
+            # # For continuous actions (like HalfCheetah)
+            # if isinstance(next_action, np.ndarray):
+            #     if next_action.ndim == 1:
+            #         next_action = next_action.reshape(-1)  # Ensure it's a 1D array
+            #     print(f"Final action shape: {next_action.shape}")
+            # print(f"{type(next_action)}, {next_action}")
             next_state, reward, terminal = self.env.step(next_action)
             trajectory.add_step(next_action, next_state, reward, log_prob)
             if add_to_replay:
