@@ -61,7 +61,7 @@ class HalfCheetahEnv(Environment):
         return 6
     
     def get_model_input_dim(self):
-        return 23  # state (17) + action (6)
+        return 18  # state (17) + action (6)
     
     def get_model_output_dim(self):
         return 17

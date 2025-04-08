@@ -61,7 +61,7 @@ if __name__ == '__main__':
     policy = PPOPolicy(env.get_policy_input_dim(), env.get_policy_output_dim(), device=device, hidden_dim=args.hidden_dim)
 
     lr = 0.001
-    bnn = BNN(env.get_model_input_dim(), env.get_model_output_dim(), hidden_dim=args.hidden_dim, n_pred=20, batch_size=5, lr=lr, kl_weight = 1 / lr ** 2 * 0.00000, epochs=10, device=device)
+    bnn = BNN(env.get_model_input_dim(), env.get_model_output_dim(), hidden_dim=args.hidden_dim, n_pred=20, batch_size=5, lr=lr, kl_weight = 1 / lr ** 2 * 0.00001, epochs=10, device=device)
 
     # timestamp and save every training run
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

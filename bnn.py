@@ -239,7 +239,7 @@ class BNN(nn.Module):
             
         
         # Total loss with KL regularization
-        total_loss = avg_pred_loss + self.kl_weight * kl_div
+        total_loss = avg_pred_loss + kl_div
         
         return total_loss, avg_pred_loss, kl_div
     
@@ -301,7 +301,6 @@ class BNN(nn.Module):
         total_loss = 0
         total_sample_loss = 0
         total_divergence_loss = 0
-        self.save_prior_params()
         for i in range(num_batches):
             self.save_old_params()
             batch_inputs = inputs[i * self.batch_size: min((i + 1) * self.batch_size, len(inputs))]
@@ -350,7 +349,7 @@ class BNN(nn.Module):
             inputs = torch.cat((states, actions.unsqueeze(1)), dim=1)
             
             # Standard precision training
-            loss, sample_loss, divergence_loss = self.loss(inputs, next_states)
+            loss, sample_loss, divergence_loss = self.loss(inputs, next_states, True)
                 
             self.optimizer.zero_grad()
             loss.backward()
