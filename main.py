@@ -58,10 +58,10 @@ if __name__ == '__main__':
     if args.device:
         device = args.device
     print("Using device:", device)
-    policy = PPOPolicy(env.get_policy_input_dim(), env.get_policy_output_dim(), device=device, hidden_dim=args.hidden_dim)
+    policy = PPOPolicy(env.get_policy_input_dim(), env.get_policy_output_dim(), device=device, hidden_dim=256)
 
     lr = 0.001
-    bnn = BNN(env.get_model_input_dim(), env.get_model_output_dim(), hidden_dim=args.hidden_dim, n_pred=20, batch_size=5, lr=lr, kl_weight = 1 / lr ** 2 * 0.00001, epochs=10, device=device)
+    bnn = BNN(env.get_model_input_dim(), env.get_model_output_dim(), hidden_dim=args.hidden_dim, n_pred=20, batch_size=64, lr=lr, kl_weight = 1 / lr ** 2 * 0.00001, epochs=10, device=device)
 
     # timestamp and save every training run
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -75,7 +75,7 @@ if __name__ == '__main__':
         n_epochs=args.n_epochs,
         n_traj=args.n_traj,
         output_dir=output_dir,
-        eta=(1 / bnn.lr ** 2) * 0.00001
+        eta=(1 / bnn.lr ** 2) * 0.001
     )
 
     trainer.train()

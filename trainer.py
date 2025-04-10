@@ -45,6 +45,7 @@ class VIMETrainer():
             total_bnn_loss = 0
             total_sample_loss = 0
             total_divergence_loss = 0
+            self.bnn.reset_kl_div_hist()
             
             for traj in tqdm(trajectories):
                 traj_states, traj_actions, traj_next_states, traj_rewards, traj_log_probs = traj.get_inputs_and_targets()
@@ -91,6 +92,11 @@ class VIMETrainer():
         trajectory = Trajectory(self.env.get_start_state())
         terminal = False
         i = 0
+        rand = np.random.rand()
+        if rand < 0.1:
+            self.env.render()
+        else:
+            self.env.stop_render()
         while not terminal and i < 2000:
             current_state = trajectory.get_current_state()
             i += 1

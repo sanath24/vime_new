@@ -117,6 +117,8 @@ class BNN(nn.Module):
         super(BNN, self).__init__()
         self.device = device
         
+        self.kl_div_hist = []
+        self.old_kl_div_hist = []
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.hidden_dim = hidden_dim
@@ -301,6 +303,10 @@ class BNN(nn.Module):
         total_loss = 0
         total_sample_loss = 0
         total_divergence_loss = 0
+        avg_kl_div = 0
+        if len(self.old_kl_div_hist) > 0:
+            avg_kl_div = np.mean(self.old_kl_div_hist)
+            
         for i in range(num_batches):
             self.save_old_params()
             batch_inputs = inputs[i * self.batch_size: min((i + 1) * self.batch_size, len(inputs))]
@@ -312,7 +318,9 @@ class BNN(nn.Module):
             total_loss += loss.item()
             total_sample_loss += sample_loss.item()
             total_divergence_loss += divergence_loss.item()
-            info_gain[min((i + 1) * self.batch_size - 1, len(inputs) - 1)] = self.kl_div_new_old().detach()
+            kl_div = self.kl_div_new_old().item()
+            self.kl_div_hist.append(kl_div)
+            info_gain[min((i + 1) * self.batch_size - 1, len(inputs) - 1)] = kl_div - avg_kl_div
         
         return info_gain, (total_loss / num_batches), (total_sample_loss / num_batches), (total_divergence_loss / num_batches)
             
@@ -326,6 +334,10 @@ class BNN(nn.Module):
         for layer in self.all_layers:
             if isinstance(layer, BNNLayer):
                 layer.save_old_params()
+    
+    def reset_kl_div_hist(self):
+        self.old_kl_div_hist = self.kl_div_hist.copy()
+        self.kl_div_hist = []
     
     def update(self, replay_pool):
         # Save current parameters

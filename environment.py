@@ -18,4 +18,8 @@ class Environment:
     def get_action_dim(self):
         pass
     
+    def render(self):
+        pass
     
+    def stop_render(self):
+        pass

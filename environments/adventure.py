@@ -4,9 +4,10 @@ import ale_py
 
 class AdventureEnv(Environment):
      
-    def __init__(self):
-        self.env = gym.make('ALE/Adventure-v5', obs_type='ram')
+    def __init__(self, render_mode=None):
+        self.env = gym.make('ALE/Adventure-v5', obs_type='ram', render_mode=render_mode)
         self.start_state = self.env.reset()
+        
         
     def get_start_state(self):
         return self.start_state
@@ -41,4 +42,11 @@ class AdventureEnv(Environment):
     def get_model_output_dim(self):
         return 128
     
+    def render(self):
+        self.env = gym.make('ALE/Adventure-v5', obs_type='ram', render_mode="human")
+        self.start_state = self.env.reset()
+        
+    def stop_render(self):
+        self.env = gym.make('ALE/Adventure-v5', obs_type='ram')
+        self.start_state = self.env.reset()
     
