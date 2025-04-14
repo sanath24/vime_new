@@ -22,6 +22,7 @@ class VIMETrainer():
         self.eta = eta
         self.results = []
         self.output_dir = output_dir
+        self.prev_sparsity = None
         os.makedirs("logs",exist_ok=True)
         # timestamp and save every training run
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -30,6 +31,41 @@ class VIMETrainer():
         self.save_dir = output_dir
         print("ETA: ", eta)
     
+
+    def compute_reward_sparsity(self, rewards_list):
+        """
+        Sparsity is defined as the ratio of time steps with nonzero rewards 
+        to the total number of time steps observed.
+        """
+        total_steps = 0
+        nonzero_steps = 0
+        for r in rewards_list:
+            r_np = r.cpu().numpy() if isinstance(r, torch.Tensor) else np.array(r)
+            total_steps += r_np.size
+            nonzero_steps += np.count_nonzero(r_np)
+        return nonzero_steps / total_steps if total_steps > 0 else 0
+
+    def adjust_eta(self, current_sparsity):
+        """
+        If current sparsity is lower than previous (i.e., rewards are sparser), 
+        increase eta. If rewards are denser, decrease eta.
+        
+        """
+        if self.prev_sparsity is None:
+            # First epoch, so just initialize prev_sparsity
+            self.prev_sparsity = current_sparsity
+            return
+
+        if current_sparsity < 1e-6:
+            multiplier = 2.0
+        else:
+            multiplier = self.prev_sparsity / current_sparsity
+
+        self.eta *= multiplier
+        print(f"Adjusting eta: multiplier {multiplier:.3f}, new eta {self.eta:.3f}")
+        self.prev_sparsity = current_sparsity
+
+
     # TODO: Log results
     def train(self):
         for i in range(self.n_epochs):
@@ -70,11 +106,17 @@ class VIMETrainer():
                 log_probs.append(traj_log_probs)
                 dones.append(traj_dones)
             
+
+            
             # bnn_loss, sample_loss, divergence_loss = self.bnn.update(self.replay_pool)
             self.policy.update(states, actions, rewards, next_states, log_probs, dones)
             self.replay_pool.clear()
+
+            sparsity = self.compute_reward_sparsity(old_rewards)
             self.log_results(i, rewards, old_rewards, info_gains, total_bnn_loss / len(trajectories), total_sample_loss / len(trajectories), total_divergence_loss / len(trajectories))
-            
+            self.adjust_eta(sparsity)
+
+
         self.policy.save_model(self.output_dir)
         self.bnn.save_model(self.output_dir)
         self.save_results()

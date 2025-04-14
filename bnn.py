@@ -322,6 +322,7 @@ class BNN(nn.Module):
             self.kl_div_hist.append(kl_div)
             info_gain[min((i + 1) * self.batch_size - 1, len(inputs) - 1)] = kl_div - avg_kl_div
         
+        # print(num_batches)
         return info_gain, (total_loss / num_batches), (total_sample_loss / num_batches), (total_divergence_loss / num_batches)
             
     
