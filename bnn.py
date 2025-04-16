@@ -205,7 +205,6 @@ class BNN(nn.Module):
             0.5 * ((target - mean) / std).pow(2)).mean()
 
         return nll
-
     
     def kl_div_new_old(self):
         kl_div = 0

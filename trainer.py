@@ -9,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import datetime
+from scipy.stats import entropy
 
 
 class VIMETrainer():
@@ -20,6 +21,7 @@ class VIMETrainer():
         self.bnn = bnn
         self.replay_pool = ReplayBuffer()
         self.eta = eta
+        print(f"Trainer initialized with eta: {self.eta}")
         self.results = []
         self.output_dir = output_dir
         os.makedirs("logs",exist_ok=True)
@@ -30,7 +32,62 @@ class VIMETrainer():
         self.save_dir = output_dir
         print("ETA: ", eta)
     
-    # TODO: Log results
+
+    """
+    Estimating reward sparsity by counting the ratio of nonzeros/total steps
+    """
+    def estimate_sparsity_nonzero(self, rewards):
+        rewards = np.array(rewards)
+        total_steps = rewards.size
+        if total_steps == 0:
+            return 0.0
+        nonzero_count = np.count_nonzero(rewards)
+        return nonzero_count / total_steps
+
+    """
+    creates a histogram of observed rewards and calculates the Shannon entropy, lower entropy means less bins = more sparse
+    """
+    def estimate_reward_entropy(self, rewards, bins=10):
+        rewards = np.array(rewards)
+        hist, _ = np.histogram(rewards, bins=bins, density=True)
+        
+        hist = hist[hist > 0] # Remove zero-probability entries for stability
+        return entropy(hist)
+
+    """
+    Boost eta when sparsity below threshold, else decrease
+    """
+    def eta_scheduler_linear(self, current_eta, sparsity_measure, threshold=0.5, 
+                           increase_rate=0.05, decrease_rate=0.05, 
+                           eta_min=1.0, eta_max=1000.0):
+        
+        # For the nonzero ratio, a lower value indicates higher sparsity.
+        if sparsity_measure < threshold:
+            # Increase eta when rewards are sparse
+            new_eta = current_eta * (1 + increase_rate)
+        else:
+            # Decrease eta when rewards are dense
+            new_eta = current_eta * (1 - decrease_rate)
+        
+        new_eta = np.clip(new_eta, eta_min, eta_max)
+        return new_eta
+
+    """
+    Adjust eta based on a regularization-based approach leveraging BNN's KL div.
+    """
+    def eta_scheduler_regularized(self, current_eta, average_kl_div, kl_threshold=0.05, 
+                                 adjust_rate=0.1, eta_min=1.0, eta_max=1000.0):
+        if average_kl_div < kl_threshold:
+            # Low KL means overconfient model so boost exploration by increasing eta
+            new_eta = current_eta * (1 + adjust_rate)
+        else:
+            # Sufficient KL means reduce eta to favor exploitation
+            new_eta = current_eta * (1 - adjust_rate)
+        
+        new_eta = np.clip(new_eta, eta_min, eta_max)
+        return new_eta
+        pass
+
     def train(self):
         for i in range(self.n_epochs):
             trajectories = self.sample_trajectories()
@@ -74,7 +131,25 @@ class VIMETrainer():
             self.policy.update(states, actions, rewards, next_states, log_probs, dones)
             self.replay_pool.clear()
             self.log_results(i, rewards, old_rewards, info_gains, total_bnn_loss / len(trajectories), total_sample_loss / len(trajectories), total_divergence_loss / len(trajectories))
+
             
+            # Approach 1: Linear Approach
+            all_old_rewards = np.concatenate([r.cpu().numpy() for r in old_rewards])
+            sparsity_val = self.estimate_sparsity_nonzero(all_old_rewards)
+            # sparisty_val = self.estimate_reward_entropy()
+            print(f"Epoch {i} - Nonzero Reward Ratio: {sparsity_val:.4f}")
+            self.eta = self.eta_scheduler_linear(self.eta, sparsity_val, threshold=0.5, 
+                                                   increase_rate=0.05, decrease_rate=0.05,
+                                                   eta_min=1.0, eta_max=1000.0)
+            
+
+            # Approach 2: Regularization Approach (UNCOMMENT)
+            # avg_divergence = total_divergence_loss / len(trajectories)
+            # self.eta = self.eta_scheduler_regularized(self.eta, avg_divergence, kl_threshold=0.05, adjust_rate=0.1,
+            #                                            eta_min=1.0, eta_max=1000.0)
+            
+            print(f"Epoch {i} - Updated eta: {self.eta:.4f}")
+
         self.policy.save_model(self.output_dir)
         self.bnn.save_model(self.output_dir)
         self.save_results()
