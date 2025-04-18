@@ -298,7 +298,7 @@ class BNN(nn.Module):
         
     def eval_info_gain_and_update(self, inputs, targets):
         # divide inputs and targets into batches
-        num_batches = len(inputs) // self.batch_size
+        num_batches = max(len(inputs) // self.batch_size, 1)
         info_gain = torch.zeros(len(inputs), device=self.device)
         total_loss = 0
         total_sample_loss = 0
