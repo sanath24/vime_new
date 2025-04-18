@@ -4,6 +4,7 @@ from environments.half_cheetah import HalfCheetahEnv
 from environments.mountain_car import MountainCarEnv
 from environments.swimmer import SwimmerEnv
 from environments.adventure import AdventureEnv
+from environments.walker2d import Walker2DEnv
 from policies.dummy import DummyPolicy
 from policies.ppo import PPOPolicy
 from bnn import BNN
@@ -19,7 +20,7 @@ if __name__ == '__main__':
     
     # Add arguments BEFORE parsing
     parser.add_argument('--env', type=str, default='cartpole',
-                        choices=['cartpole', 'mountain_car', 'swimmer', 'half_cheetah', 'adventure'],
+                        choices=['cartpole', 'mountain_car', 'swimmer', 'half_cheetah', 'adventure', 'walker', 'walker_2d'],
                         help='Environment to train on')
     parser.add_argument('--n_epochs', type=int, default=50,
                         help='Number of training epochs')
@@ -45,6 +46,8 @@ if __name__ == '__main__':
         env = HalfCheetahEnv()
     elif args.env == 'adventure':
         env = AdventureEnv()
+    elif args.env == 'walker_2d' or args.env == 'walker':
+        env = Walker2DEnv()
     else:
         raise ValueError(f"Unknown environment")
     
