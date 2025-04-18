@@ -9,7 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import datetime
-from scipy.stats import entropy
+from scipy.stats import entropy, kurtosis
 
 
 class VIMETrainer():
@@ -33,6 +33,131 @@ class VIMETrainer():
         print("ETA: ", eta)
     
 
+    def sparsity_nonzero_ratio(self, rewards):
+        """
+        Fraction of steps with nonzero reward.
+        Lower ratio ⇒ more sparse.
+        """
+        rewards = np.array(rewards)
+        if rewards.size == 0:
+            return 0.0
+        return 1.0 - (np.count_nonzero(rewards) / rewards.size)
+
+
+    def sparsity_unique_ratio(self, rewards):
+        """
+        Ratio of unique reward values to total steps.
+        Lower ratio ⇒ more clustering (i.e., sparser signal).
+        """
+        rewards = np.array(rewards)
+        if rewards.size == 0:
+            return 0.0
+        return len(np.unique(rewards)) / rewards.size
+
+
+    def sparsity_histogram_entropy(self, rewards, bins=10):
+        """
+        Shannon entropy of the reward histogram.
+        Lower entropy ⇒ mass concentrated in fewer bins ⇒ sparse.
+        """
+        rewards = np.array(rewards)
+        hist, _ = np.histogram(rewards, bins=bins, density=True)
+        # add a small epsilon so log doesn’t blow up on zeros
+        hist = hist + 1e-12
+        return entropy(hist)
+
+
+    def sparsity_renyi_entropy(self, rewards, alpha=2, bins=10):
+        """
+        Renyi‐α entropy of the reward histogram.
+        For α>1, more sensitive to high‐probability bins.
+        """
+        rewards = np.array(rewards)
+        hist, _ = np.histogram(rewards, bins=bins, density=True)
+        hist = hist + 1e-12
+        return 1.0 / (1 - alpha) * np.log((hist**alpha).sum())
+
+
+    def sparsity_gini_coefficient(self, rewards):
+        """
+        Gini coefficient on absolute reward magnitudes.
+        Higher Gini ⇒ more inequality in the distribution ⇒ sparser.
+        """
+        vals = np.abs(np.array(rewards)).flatten()
+        if vals.size == 0:
+            return 0.0
+        sorted_vals = np.sort(vals)
+        n = vals.size
+        index = np.arange(1, n+1)
+        return (np.sum((2*index - n - 1) * sorted_vals) / (n * np.sum(sorted_vals) + 1e-12))
+
+
+    def sparsity_iqr_ratio(self, rewards):
+        """
+        Interquartile range (IQR) divided by total range.
+        Lower IQR / range ⇒ rewards are more peaked ⇒ sparser.
+        """
+        rewards = np.array(rewards)
+        if rewards.size == 0:
+            return 0.0
+        q75, q25 = np.percentile(rewards, [75 ,25])
+        iqr = q75 - q25
+        data_range = rewards.max() - rewards.min() + 1e-12
+        return 1.0 - (iqr / data_range)
+
+
+    def sparsity_coefficient_of_variation(self, rewards):
+        """
+        Coefficient of variation: std / |mean|.
+        Lower CV ⇒ less variation relative to mean ⇒ sparser.
+        """
+        rewards = np.array(rewards)
+        if rewards.size == 0:
+            return 0.0
+        mu = rewards.mean()
+        sigma = rewards.std()
+        return sigma / (abs(mu) + 1e-12)
+
+
+    def sparsity_kurtosis(self, rewards):
+        """
+        Excess kurtosis of the reward distribution.
+        Higher kurtosis ⇒ heavier tails and sharper peak ⇒ sparser.
+        """
+        rewards = np.array(rewards)
+        if rewards.size < 4:
+            return 0.0
+        return kurtosis(rewards, fisher=True)
+
+
+    def sparsity_autocorrelation(rewards, lag=1):
+        """
+        1-step autocorrelation. 
+        High autocorrelation ⇒ rewards change slowly ⇒ sparser signal.
+        """
+        rewards = np.array(rewards)
+        if rewards.size <= lag:
+            return 0.0
+        r = rewards
+        return np.corrcoef(r[:-lag], r[lag:])[0,1]
+
+
+    # -------------------------------------------------------------------------
+    # Standard‐deviation based approach
+    # -------------------------------------------------------------------------
+    def sparsity_std_measure(self, rewards):
+        """
+        Use the raw standard deviation as a measure of variation.
+        Low std ⇒ rewards are clustered (i.e. sparse).
+        
+        Returns:
+            float: The standard deviation.
+        """
+        rewards = np.array(rewards)
+        if rewards.size == 0:
+            return 0.0
+        return rewards.std()
+
     """
     Estimating reward sparsity by counting the ratio of nonzeros/total steps
     """
@@ -51,7 +176,7 @@ class VIMETrainer():
         rewards = np.array(rewards)
         hist, _ = np.histogram(rewards, bins=bins, density=True)
         
-        hist = hist[hist > 0] # Remove zero-probability entries for stability
+        # hist = hist[hist > 0] # Remove zero-probability entries for stability
         return entropy(hist)
 
     """
@@ -133,11 +258,22 @@ class VIMETrainer():
             self.log_results(i, rewards, old_rewards, info_gains, total_bnn_loss / len(trajectories), total_sample_loss / len(trajectories), total_divergence_loss / len(trajectories))
 
             
-            # Approach 1: Linear Approach
+            
             all_old_rewards = np.concatenate([r.cpu().numpy() for r in old_rewards])
-            sparsity_val = self.estimate_sparsity_nonzero(all_old_rewards)
-            # sparisty_val = self.estimate_reward_entropy()
-            print(f"Epoch {i} - Nonzero Reward Ratio: {sparsity_val:.4f}")
+
+            # Option 1 - nonzero based sparsity
+            # sparsity_val = self.estimate_sparsity_nonzero(all_old_rewards)
+            # print(f"Epoch {i} - Reward Ratio: {sparsity_val:.4f}")
+
+            # Option 2 - reward based sparsity
+            # sparsity_val = self.estimate_reward_entropy(all_old_rewards)
+            # print(f"Epoch {i} - Reward Entropy: {sparsity_val:.4f}")
+
+            # Option 3 - std based sparstiy
+            sparsity_val = self.sparsity_std_measure(all_old_rewards)
+            print(f"Epoch {i} - Reward Std: {sparsity_val:.4f}")
+
+            # Approach 1: Linear Approach
             self.eta = self.eta_scheduler_linear(self.eta, sparsity_val, threshold=0.5, 
                                                    increase_rate=0.05, decrease_rate=0.05,
                                                    eta_min=1.0, eta_max=1000.0)
