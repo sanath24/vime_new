@@ -297,7 +297,10 @@ class BNN(nn.Module):
         
     def eval_info_gain_and_update(self, inputs, targets):
         # divide inputs and targets into batches
-        num_batches = len(inputs) // self.batch_size
+        
+        num_batches = max(len(inputs) // self.batch_size, 1)
+        # print(f"length of inputs: {len(inputs)}")
+        # print(f"Number of batches: {self.batch_size}")
         info_gain = torch.zeros(len(inputs), device=self.device)
         total_loss = 0
         total_sample_loss = 0
@@ -321,6 +324,8 @@ class BNN(nn.Module):
             self.kl_div_hist.append(kl_div)
             info_gain[min((i + 1) * self.batch_size - 1, len(inputs) - 1)] = kl_div - avg_kl_div
         
+        # print("Debug divide by zero")
+        # print(f"Info Gain: {info_gain}, total_loss: {total_loss}, total_sample_loss: {total_loss}, total_divergence_loss: {total_divergence_loss}, num_batches: {num_batches}")
         return info_gain, (total_loss / num_batches), (total_sample_loss / num_batches), (total_divergence_loss / num_batches)
             
     

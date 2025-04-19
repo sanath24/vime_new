@@ -130,7 +130,7 @@ class VIMETrainer():
         return kurtosis(rewards, fisher=True)
 
 
-    def sparsity_autocorrelation(rewards, lag=1):
+    def sparsity_autocorrelation(self, rewards, lag=1):
         """
         1-step autocorrelation. 
         High autocorrelation ⇒ rewards change slowly ⇒ sparser signal.
@@ -176,8 +176,33 @@ class VIMETrainer():
         rewards = np.array(rewards)
         hist, _ = np.histogram(rewards, bins=bins, density=True)
         
-        # hist = hist[hist > 0] # Remove zero-probability entries for stability
+        hist = hist[hist > 0] # Remove zero-probability entries for stability
         return entropy(hist)
+    
+    """
+    Estimate sparsity based on the number of rewards that are smaller than the mean
+    """
+    def estimate_sparsity_mean(self, rewards):
+        
+        if rewards.size == 0:
+            return 0.0
+        mean_rewards = np.mean(rewards)
+        return np.count_nonzero(rewards > mean_rewards)/rewards.size # this is actually estimating how well formed rewards
+        
+    # """
+
+    # Objective is to boost eta when rewards are sparse, decrease eta otherwise
+
+
+    # """
+
+    # def eta_scheduler_linear(self, current_eta, sparsity_measure, threshold=0.5, 
+    #                        increase_rate=0.05, decrease_rate=0.05, 
+    #                        eta_min=1.0, eta_max=1000.0):
+        
+    #     if sparsity_measure
+
+
 
     """
     Boost eta when sparsity below threshold, else decrease
@@ -196,6 +221,28 @@ class VIMETrainer():
         
         new_eta = np.clip(new_eta, eta_min, eta_max)
         return new_eta
+    
+    def eta_scheduler_warmup(self, current_eta, epoch, sparsity_measure, threshold=0.5, 
+                           increase_rate=0.05, decrease_rate=0.05, 
+                           eta_min=1.0, eta_max=1000.0, warmup_epochs=10):
+        
+        # For the nonzero ratio, a lower value indicates higher sparsity.
+        if epoch < warmup_epochs:
+            # warmup_eta = eta_min + (eta_max - eta_min) * (epoch / warmup_epochs)
+            # return np.clip(warmup_eta, eta_min, eta_max)
+            return current_eta
+        if sparsity_measure < threshold:
+            # Increase eta when rewards are sparse
+            # new_eta = current_eta * (1 + increase_rate)
+            exploration_factor = 1 + increase_rate
+        else:
+            # Decrease eta when rewards are dense
+            # new_eta = current_eta * (1 - decrease_rate)
+            exploration_factor = 1 - decrease_rate
+
+        new_eta = current_eta * exploration_factor
+        return np.clip(new_eta, eta_min, eta_max)
+
 
     """
     Adjust eta based on a regularization-based approach leveraging BNN's KL div.
@@ -211,7 +258,6 @@ class VIMETrainer():
         
         new_eta = np.clip(new_eta, eta_min, eta_max)
         return new_eta
-        pass
 
     def train(self):
         for i in range(self.n_epochs):
@@ -260,6 +306,7 @@ class VIMETrainer():
             
             
             all_old_rewards = np.concatenate([r.cpu().numpy() for r in old_rewards])
+            # reward_mean = np.mean(all_old_rewards)
 
             # Option 1 - nonzero based sparsity
             # sparsity_val = self.estimate_sparsity_nonzero(all_old_rewards)
@@ -269,20 +316,25 @@ class VIMETrainer():
             # sparsity_val = self.estimate_reward_entropy(all_old_rewards)
             # print(f"Epoch {i} - Reward Entropy: {sparsity_val:.4f}")
 
-            # Option 3 - std based sparstiy
-            sparsity_val = self.sparsity_std_measure(all_old_rewards)
-            print(f"Epoch {i} - Reward Std: {sparsity_val:.4f}")
+            # Option 3 - estimate sparsity based on ratio of rewards above mean
+            sparsity_val = self.estimate_sparsity_mean(all_old_rewards)
+            print(f"Epoch {i} - Reward Sparsity: {sparsity_val:.4f}")
 
             # Approach 1: Linear Approach
-            self.eta = self.eta_scheduler_linear(self.eta, sparsity_val, threshold=0.5, 
-                                                   increase_rate=0.05, decrease_rate=0.05,
-                                                   eta_min=1.0, eta_max=1000.0)
+            # self.eta = self.eta_scheduler_linear(self.eta, sparsity_val, threshold=0.5, 
+            #                                        increase_rate=0.05, decrease_rate=0.05,
+            #                                        eta_min=1.0, eta_max=1000.0)
             
 
             # Approach 2: Regularization Approach (UNCOMMENT)
             # avg_divergence = total_divergence_loss / len(trajectories)
             # self.eta = self.eta_scheduler_regularized(self.eta, avg_divergence, kl_threshold=0.05, adjust_rate=0.1,
             #                                            eta_min=1.0, eta_max=1000.0)
+
+            # Approach 3: Warmup Linear
+            # self.eta = self.eta_scheduler_warmup(self.eta, i, sparsity_val, threshold=0.5, 
+            #                                        increase_rate=0.05, decrease_rate=0.05,
+            #                                        eta_min=1.0, eta_max=1000.0)
             
             print(f"Epoch {i} - Updated eta: {self.eta:.4f}")
 
