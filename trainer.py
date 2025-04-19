@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import os
 import datetime
 from scipy.stats import entropy, kurtosis
+import pandas as pd
 
 
 class VIMETrainer():
@@ -31,6 +32,7 @@ class VIMETrainer():
         os.makedirs(output_dir, exist_ok=True)
         self.save_dir = output_dir
         print("ETA: ", eta)
+        self.etas = [self.eta]
     
 
     def sparsity_nonzero_ratio(self, rewards):
@@ -187,7 +189,7 @@ class VIMETrainer():
         if rewards.size == 0:
             return 0.0
         mean_rewards = np.mean(rewards)
-        return np.count_nonzero(rewards > mean_rewards)/rewards.size # this is actually estimating how well formed rewards
+        return (np.count_nonzero(rewards > mean_rewards)/rewards.size) * 100
         
     # """
 
@@ -224,7 +226,7 @@ class VIMETrainer():
     
     def eta_scheduler_warmup(self, current_eta, epoch, sparsity_measure, threshold=0.5, 
                            increase_rate=0.05, decrease_rate=0.05, 
-                           eta_min=1.0, eta_max=1000.0, warmup_epochs=10):
+                           eta_min=1.0, eta_max=1000.0, warmup_epochs=5):
         
         # For the nonzero ratio, a lower value indicates higher sparsity.
         if epoch < warmup_epochs:
@@ -308,34 +310,37 @@ class VIMETrainer():
             all_old_rewards = np.concatenate([r.cpu().numpy() for r in old_rewards])
             # reward_mean = np.mean(all_old_rewards)
 
-            # Option 1 - nonzero based sparsity
+            # Option 1 - nonzero based sparsity  -- UNCOMMENT
             # sparsity_val = self.estimate_sparsity_nonzero(all_old_rewards)
             # print(f"Epoch {i} - Reward Ratio: {sparsity_val:.4f}")
 
-            # Option 2 - reward based sparsity
+            # Option 2 - reward based sparsity  -- UNCOMMENT
             # sparsity_val = self.estimate_reward_entropy(all_old_rewards)
             # print(f"Epoch {i} - Reward Entropy: {sparsity_val:.4f}")
 
-            # Option 3 - estimate sparsity based on ratio of rewards above mean
+            # Option 3 - estimate sparsity based on ratio of rewards above mean 
             sparsity_val = self.estimate_sparsity_mean(all_old_rewards)
             print(f"Epoch {i} - Reward Sparsity: {sparsity_val:.4f}")
+            # self.etas.append(self.eta)
 
-            # Approach 1: Linear Approach
+            # Approach 1: Linear Approach -- UNCOMMENT
             # self.eta = self.eta_scheduler_linear(self.eta, sparsity_val, threshold=0.5, 
             #                                        increase_rate=0.05, decrease_rate=0.05,
             #                                        eta_min=1.0, eta_max=1000.0)
+            # self.etas.append(self.eta)
             
 
-            # Approach 2: Regularization Approach (UNCOMMENT)
+            # Approach 2: Regularization Approach  -- UNCOMMENT
             # avg_divergence = total_divergence_loss / len(trajectories)
             # self.eta = self.eta_scheduler_regularized(self.eta, avg_divergence, kl_threshold=0.05, adjust_rate=0.1,
             #                                            eta_min=1.0, eta_max=1000.0)
 
-            # Approach 3: Warmup Linear
-            # self.eta = self.eta_scheduler_warmup(self.eta, i, sparsity_val, threshold=0.5, 
-            #                                        increase_rate=0.05, decrease_rate=0.05,
-            #                                        eta_min=1.0, eta_max=1000.0)
-            
+            # Approach 3: Warmup Linear 
+            self.eta = self.eta_scheduler_warmup(self.eta, i, sparsity_val, threshold=0.5, 
+                                                   increase_rate=0.05, decrease_rate=0.05,
+                                                   eta_min=1.0, eta_max=1000.0)
+            self.etas.append(self.eta)
+
             print(f"Epoch {i} - Updated eta: {self.eta:.4f}")
 
         self.policy.save_model(self.output_dir)
@@ -408,9 +413,23 @@ class VIMETrainer():
         bnn_loss = results[:, 3]
         sample_loss = results[:, 4]
         divergence_loss = results[:, 5]
+        etas = self.etas
         # Ensure output directory exists
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
+        
+        # save results
+        df = pd.DataFrame({
+            'Epoch': np.arange(len(rewards)),
+            'Rewards': rewards,
+            'Old Rewards': old_rewards,
+            'Info Gains': info_gains,
+            'BNN Loss': bnn_loss,
+            'Sample Loss': sample_loss,
+            'Divergence Loss': divergence_loss,
+            'Eta': etas
+        })
+        df.to_csv(os.path.join(self.output_dir, "results.csv"), index=False)
             
         # Plot results
         plt.figure(figsize=(10, 6))
@@ -463,6 +482,14 @@ class VIMETrainer():
         plt.title("Divergence Loss Over Time")
         # Save plot
         output_path = os.path.join(self.output_dir, "divergence_loss.png")
+        plt.savefig(output_path)
+        plt.close()
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(etas, label="Eta")
+        plt.legend()
+        plt.title("Eta Over Time")
+        output_path = os.path.join(self.output_dir, "etas.png")
         plt.savefig(output_path)
         plt.close()
         
