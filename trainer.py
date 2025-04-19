@@ -465,6 +465,17 @@ class VIMETrainer():
         # Save plot
         output_path = os.path.join(self.output_dir, "bnn_loss.png")
         plt.savefig(output_path)
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(bnn_loss, label="BNN Loss")
+        plt.yscale('log')  # Set y-axis to logarithmic scale
+        plt.legend()
+        plt.title("BNN Loss Over Time (Log Scale)")
+        # Save plot
+        output_path = os.path.join(self.output_dir, "bnn_loss_log.png")
+        plt.savefig(output_path)
+        plt.close()
+
         
         plt.close()
         plt.figure(figsize=(10, 6))
