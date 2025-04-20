@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-# from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingWarmRestarts, CyclicLR, CosineAnnealingLR, 
+from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingWarmRestarts, CyclicLR, CosineAnnealingLR
 import numpy as np
 from torch.autograd import Variable
 import os
@@ -33,6 +33,8 @@ class BNNLayer(nn.Module):
         self.W_rho_old = torch.zeros_like(self.W_rho, device=device)
         self.b_mu_old = torch.zeros_like(self.b_mu, device=device)
         self.b_rho_old = torch.zeros_like(self.b_rho, device=device)
+
+        
 
     def forward(self, X, infer=False):
         if infer:
@@ -114,7 +116,7 @@ class BNNLayer(nn.Module):
 class BNN(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_dim, device, 
                  n_pred=5, batch_size=100, epochs=10, 
-                 kl_weight=0.01, lr=0.001, min_std=0.01):
+                 kl_weight=0.01, lr=0.001, min_std=0.01, lr_scheduler=None):
         super(BNN, self).__init__()
         self.device = device
         
@@ -160,7 +162,19 @@ class BNN(nn.Module):
         # Print total number of parameters
         total_params = sum(p.numel() for p in self.parameters())
         print(f"Total parameters: {total_params}")
+
+        # add lr scheduler
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        self.scheduler = None
+        if lr_scheduler is not None:
+            if lr_scheduler == "sgdr":
+                self.scheduler = CosineAnnealingWarmRestarts(self.optimizer, T_0=10, T_mult=2, eta_min=0.001)
+            elif lr_scheduler == "reduce_plateau":
+                self.scheduler = ReduceLROnPlateau(self.optimizer, mode='min', factor=0.1, patience=10)
+            elif lr_scheduler == "clr":
+                self.scheduler = CyclicLR(self.optimizer, base_lr=0.001, max_lr=0.01, step_size_up=2000, mode='triangular')
+            elif lr_scheduler == "cosine":
+                self.scheduler = CosineAnnealingLR(self.optimizer, T_max=50, eta_min=0.001)
 
     def forward(self, x, infer=False):
         # Ensure input is on the correct device
