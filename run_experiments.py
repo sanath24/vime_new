@@ -1,18 +1,23 @@
 import subprocess
+import os
 
-environments = ['cartpole', 'mountain_car', 'swimmer', 'half_cheetah', 'adventure', 'walker_2d']
-schedulers = ['linear', 'regularization', 'warmup']
-num_epochs = [50,100]
+# remove adventure for now
+environments = ['cartpole', 'mountain_car', 'swimmer', 'half_cheetah', 'walker_2d']
+schedulers = ['default', 'linear', 'regularization', 'warmup']
+schedulers = reversed(schedulers)
+environments = reversed(environments)
+num_epochs = [100, 50]
 n_traj = 100
 hidden_dim = 128
 
 for num in num_epochs:
-    for env in environments:
-        for scheduler in schedulers:
+    for scheduler in schedulers:
+        for env in environments:            
             # Output directory name based on scheduler, number of epochs, and environment
-            output_dir = f"{scheduler}_{env}_{num}"
+            output_dir = f"experiments/{scheduler}_{env}_{num}"
+            os.makedirs(output_dir, exist_ok=True)
             print(f"{output_dir}")
-            
+
             command = [
                 "python3", "main.py",
                 "--env", env,
@@ -24,9 +29,10 @@ for num in num_epochs:
                 "--scheduler", scheduler,
                 "--sparsity", "mean"  # Fixing sparsity to 'mean'
             ]
-            
-            
             subprocess.run(command)
+            
+    
+            
 
             # # log each run to txt file
             # log_file = f"{output_dir}_log.txt"

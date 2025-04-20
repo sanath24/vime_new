@@ -33,7 +33,7 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str, default=None,
                         help='Device to use (cpu/cuda). If None, will use cuda if available')
     parser.add_argument('--scheduler', type=str, default='warmup',
-                        choices = ['linear','regularization','warmup', 'lr_scheduler'],
+                        choices = ['linear','regularization','warmup', 'lr_scheduler', 'default'],
                         help='Scheduler for eta value. Default to use warmup + linear strategy')
     parser.add_argument('--sparsity', type=str, default='mean',
                         choices = ['nonzero','entropy','mean'],
