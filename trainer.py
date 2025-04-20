@@ -14,7 +14,7 @@ import pandas as pd
 
 
 class VIMETrainer():
-    def __init__(self, env: Environment, policy: Policy, bnn: BNN, n_epochs, n_traj, eta=0, output_dir=None):
+    def __init__(self, env: Environment, policy: Policy, bnn: BNN, n_epochs, n_traj, eta=0, output_dir=None, sparsity_est="mean", scheduler="linear"):
         self.n_epochs = n_epochs
         self.n_traj = n_traj
         self.env = env
@@ -22,6 +22,8 @@ class VIMETrainer():
         self.bnn = bnn
         self.replay_pool = ReplayBuffer()
         self.eta = eta
+        self.sparsity_est = sparsity_est
+        self.scheduler=scheduler
         print(f"Trainer initialized with eta: {self.eta}")
         self.results = []
         self.output_dir = output_dir
@@ -310,35 +312,39 @@ class VIMETrainer():
             all_old_rewards = np.concatenate([r.cpu().numpy() for r in old_rewards])
             # reward_mean = np.mean(all_old_rewards)
 
-            # Option 1 - nonzero based sparsity  -- UNCOMMENT
-            # sparsity_val = self.estimate_sparsity_nonzero(all_old_rewards)
-            # print(f"Epoch {i} - Reward Ratio: {sparsity_val:.4f}")
-
-            # Option 2 - reward based sparsity  -- UNCOMMENT
-            # sparsity_val = self.estimate_reward_entropy(all_old_rewards)
-            # print(f"Epoch {i} - Reward Entropy: {sparsity_val:.4f}")
-
+            # Option 1 - nonzero based sparsity
+            if self.sparsity_est == "nonzero":
+                sparsity_val = self.estimate_sparsity_nonzero(all_old_rewards)
+                print(f"Epoch {i} - Reward Ratio: {sparsity_val:.4f}")
+            # Option 2 - entropy based sparsity
+            elif self.sparsity_est == "entropy":
+                sparsity_val = self.estimate_reward_entropy(all_old_rewards)
+                print(f"Epoch {i} - Reward Entropy: {sparsity_val:.4f}")
             # Option 3 - estimate sparsity based on ratio of rewards above mean 
-            sparsity_val = self.estimate_sparsity_mean(all_old_rewards)
-            print(f"Epoch {i} - Reward Sparsity: {sparsity_val:.4f}")
-            # self.etas.append(self.eta)
+            elif self.sparsity_est == "mean":
+                sparsity_val = self.estimate_sparsity_mean(all_old_rewards)
+                print(f"Epoch {i} - Reward Sparsity: {sparsity_val:.4f}")
+            else:
+                sparsity_val = sparsity_val = self.estimate_sparsity_mean(all_old_rewards)
+                print(f"Defaulted to mean sparisty - Epoch {i} - Reward Sparsity: {sparsity_val:.4f}")
 
-            # Approach 1: Linear Approach -- UNCOMMENT
-            # self.eta = self.eta_scheduler_linear(self.eta, sparsity_val, threshold=0.5, 
-            #                                        increase_rate=0.05, decrease_rate=0.05,
-            #                                        eta_min=1.0, eta_max=1000.0)
-            # self.etas.append(self.eta)
-            
-
-            # Approach 2: Regularization Approach  -- UNCOMMENT
-            # avg_divergence = total_divergence_loss / len(trajectories)
-            # self.eta = self.eta_scheduler_regularized(self.eta, avg_divergence, kl_threshold=0.05, adjust_rate=0.1,
-            #                                            eta_min=1.0, eta_max=1000.0)
-
+            # Approach 1: Linear Approach
+            if self.scheduler == 'linear':
+                self.eta = self.eta_scheduler_linear(self.eta, sparsity_val, threshold=0.5, 
+                                                    increase_rate=0.05, decrease_rate=0.05,
+                                                    eta_min=1.0, eta_max=1000.0)
+                self.etas.append(self.eta)
+            # Approach 2: Regularization Approach
+            elif self.scheduler == 'regularization':
+                avg_divergence = total_divergence_loss / len(trajectories)
+                self.eta = self.eta_scheduler_regularized(self.eta, avg_divergence, kl_threshold=0.05, adjust_rate=0.1,
+                                                        eta_min=1.0, eta_max=1000.0)
             # Approach 3: Warmup Linear 
-            self.eta = self.eta_scheduler_warmup(self.eta, i, sparsity_val, threshold=0.5, 
-                                                   increase_rate=0.05, decrease_rate=0.05,
-                                                   eta_min=1.0, eta_max=1000.0)
+            elif self.scheduler == 'warmup':
+                self.eta = self.eta_scheduler_warmup(self.eta, i, sparsity_val, threshold=0.5, 
+                                                    increase_rate=0.05, decrease_rate=0.05,
+                                                    eta_min=1.0, eta_max=1000.0)
+            # logging for later visualization
             self.etas.append(self.eta)
 
             print(f"Epoch {i} - Updated eta: {self.eta:.4f}")

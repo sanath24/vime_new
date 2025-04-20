@@ -32,6 +32,12 @@ if __name__ == '__main__':
                         help='Output directory for results')
     parser.add_argument('--device', type=str, default=None,
                         help='Device to use (cpu/cuda). If None, will use cuda if available')
+    parser.add_argument('--scheduler', type=str, default='warmup',
+                        choices = ['linear','regularization','warmup', 'lr_scheduler'],
+                        help='Scheduler for eta value. Default to use warmup + linear strategy')
+    parser.add_argument('--sparsity', type=str, default='mean',
+                        choices = ['nonzero','entropy','mean'],
+                        help='Reward sparsity measure')
     
     # Parse arguments AFTER adding them
     args = parser.parse_args()
@@ -68,6 +74,7 @@ if __name__ == '__main__':
 
     # timestamp and save every training run
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    # output_dir = os.path.join(args.output_dir, f"{args.env}_{timestamp}_out")
     output_dir = os.path.join(args.output_dir, f"{args.env}_{timestamp}_out")
     os.makedirs(output_dir, exist_ok=True)
 
@@ -78,7 +85,9 @@ if __name__ == '__main__':
         n_epochs=args.n_epochs,
         n_traj=args.n_traj,
         output_dir=output_dir,
-        eta=(1 / bnn.lr ** 2) * 0.001
+        eta=(1 / bnn.lr ** 2) * 0.001, 
+        sparsity_est=args.sparsity,
+        scheduler=args.scheduler
     )
 
     trainer.train()
