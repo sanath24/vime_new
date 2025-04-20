@@ -1,10 +1,15 @@
 from environment import Environment
 import gym
 import numpy as np
+# from gym.wrappers import Monitor
+# import os
 
 class Walker2DEnv(Environment):
-    def __init__(self):
+    def __init__(self, video_dir="video_output"):
         self.env = gym.make('Walker2d-v4')
+        # os.makedirs(video_dir, exist_ok=True)  # Ensure the directory exists
+        # self.env = Wrapper.Monitor(self.env, video_dir, force=True, video_callable=lambda episode_id: True)
+        # self.env = Wrappers.Monitor(self.env, "video", force=True)
         self.state_dim = {
             'position': {
                 'dtype': 'float32',
@@ -44,7 +49,9 @@ class Walker2DEnv(Environment):
             action = np.full((6,), action.item(), dtype=np.float32)
         else:
             action = action.reshape(self.get_action_dim())
+        
         next_state, reward, terminated, truncated, info = self.env.step(action)
+        # self.env.render()
         terminal = terminated or truncated
         return next_state, reward, terminal
     

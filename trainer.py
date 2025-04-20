@@ -332,7 +332,7 @@ class VIMETrainer():
 
             # Approach 1: Linear Approach
             if self.scheduler == 'linear':
-                self.eta = self.eta_scheduler_linear(self.eta, sparsity_val, threshold=0.25, 
+                self.eta = self.eta_scheduler_linear(self.eta, sparsity_val, threshold=0.5, 
                                                     increase_rate=0.05, decrease_rate=0.05,
                                                     eta_min=1.0, eta_max=1000.0)
             # Approach 2: Regularization Approach
@@ -342,7 +342,7 @@ class VIMETrainer():
                                                         eta_min=1.0, eta_max=1000.0)
             # Approach 3: Warmup Linear 
             elif self.scheduler == 'warmup':
-                self.eta = self.eta_scheduler_warmup(self.eta, i, sparsity_val, threshold=0.25, 
+                self.eta = self.eta_scheduler_warmup(self.eta, i, sparsity_val, threshold=0.5, 
                                                     increase_rate=0.05, decrease_rate=0.05,
                                                     eta_min=1.0, eta_max=1000.0)
             # Approach 4: Preserve eta
