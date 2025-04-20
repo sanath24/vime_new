@@ -2,7 +2,7 @@ import subprocess
 import os
 
 # remove adventure for now
-environments = ['cartpole', 'mountain_car', 'swimmer', 'half_cheetah', 'walker_2d']
+environments = ['cartpole', 'mountain_car', 'half_cheetah', 'walker_2d']
 schedulers = ['default', 'linear', 'regularization', 'warmup']
 schedulers = reversed(schedulers)
 environments = reversed(environments)
